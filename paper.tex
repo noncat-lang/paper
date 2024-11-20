@@ -1,0 +1,818 @@
+%% based on templae/IEEEtran/bare_conf.tex
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{fancyvrb}
+\usepackage{courier}
+\usepackage{helvet}
+\usepackage{tikz}
+\usepackage{xcolor}	
+\usepackage{pdfpages}
+\usepackage{amsmath}                   % AMS math typesetting
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage[parfill]{parskip}
+
+% correct bad hyphenation here
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+%\usepackage[usenames,dvipsnames]{color}
+\newcommand{\todo}[1] {\textcolor{red}{\textbf{TODO: #1}}}
+\newcommand{\lhnote}[1] {(\textbf{LH says: \textcolor{red}{#1}})}
+%\newcommand{\fix}[1]{\textcolor{red}{#1}}
+\newcommand{\status}[1] {\textcolor{magenta}{\textbf{Status: #1}}}
+\newcommand{\punchline}[1]{\textbf{Punch line: #1}}
+\newcommand{\question}[1] {\textcolor{blue}{\textbf{#1}}}
+%\newcommand{\punchline}[1]{}
+
+\renewcommand{\punchline}[1]{}
+\renewcommand{\todo}[1]{}
+\renewcommand{\lhnote}[1]{}
+\renewcommand{\status}[1]{}
+
+% saves you writing {} after \msa. we can change \msa to \xmsa easily
+\usepackage{xspace}
+\newcommand{\msa}{$MSA$\xspace} 
+\newcommand{\msat}{$MSA^T$\xspace}
+\newcommand{\cnc}{Component \& Connector\xspace}
+\usepackage{graphics}
+%\input{tags/listings.tex}
+
+\usepackage{listings}
+\lstset{
+    numbers=left,
+    numberstyle=\tiny,
+    numbersep=5pt,
+    xleftmargin=10pt,
+    xrightmargin=8pt,
+    frame=single,
+    aboveskip=5pt,
+    belowskip=-4pt,
+    sensitive=true,
+%    float=!t,
+    breaklines=true,
+    captionpos=b,
+    tabsize=2,
+    showstringspaces=false,
+    basicstyle=\small\ttfamily,
+    morecomment=[l]{//},
+    morecomment=[s][\itshape]{/**}{*/}
+}
+\lstdefinelanguage{MCG}[]{Java}{
+  morekeywords={grammar, options, token}
+}
+
+%Equalize Reference length
+\IEEEtriggeratref{15}
+
+%\usepackage[margin=1in]{geometry}
+%\textwidth=6.5in
+%\textheight=9in
+%\setlength{\topmargin}{-.50in}
+%\setlength{\oddsidemargin}{0in}
+
+
+\begin{document}
+
+\title{Eliminating Input-Based Attacks by Deriving Automated Encoders and Decoders from Context-free Grammars}
+
+\author{\IEEEauthorblockN{Tobias Bieschke\textsuperscript{1},
+Lars Hermerschmidt\textsuperscript{1,2},
+Bernhard Rumpe\textsuperscript{1} and
+Peter Stanchev\textsuperscript{1}}
+\IEEEauthorblockA{Software Engineering, RWTH Aachen University, Germany\textsuperscript{2}\\
+AXA Konzern AG, Germany\textsuperscript{2}
+%Email: tobias.bieschke@rwth-aachen.de, hermerschmidt@se-rwth.de, rumpe@se-rwth.de, peter.stanchev@rwth-aachen.de}
+}
+}
+
+% use for special paper notices
+%\IEEEspecialpapernotice{(Invited Paper)}
+
+\maketitle
+
+\IEEEpeerreviewmaketitle
+
+\begin{abstract}
+%context of this work
+Software systems nowadays communicate via a number of complex languages.
+This is often the cause of security vulnerabilities like arbitrary code execution, or injections.
+Whereby injections such as cross-site scripting are widely known from textual languages such as HTML and JSON that constantly gain more popularity.
+These systems use parsers to read input and unparsers write output, where these security vulnerabilities arise.
+Therefore correct parsing and unparsing of messages is of the utmost importance when developing secure and reliable systems.
+%problem with existing research
+Part of the challenge developers face is to correctly encode data during unparsing and decode it during parsing.
+
+%Therefoer this paper aims to
+This paper presents McHammerCoder, an (un)parser and encoding generator supporting textual and binary languages.
+%The aproache works like...
+Those (un)parsers automatically apply the generated encoding, that is derived from the language's grammar.
+%This results in
+Therefore manually defining and applying encoding is not required to effectively prevent injections when using McHammerCoder.
+%The benefit for the user is...
+By specifying the communication language within a grammar, McHammerCoder provides developers with correct input and output handling code for their custom language.
+\end{abstract}
+
+\todo{@Peter: check if 'build' should be spelled 'built' in the whole paper}
+
+\section{Introduction}
+\todo{paragraphs 1,2,3,4 till SQLi and XSS feel too long and too repeating.}
+Nowadays virtually every application runs in distributed fashion, regularly across trust boundaries. When communicating, components of the application send messages over some communication channel. In order to transport data, the communicating parties need to agree on some language. This language is also called protocol, or format.
+The output components send, respectively the input they receive, has to comply to that language's grammar.
+
+Countless vulnerabilities like buffer overflows, SQL injection (SQLi), and cross-site scripting (XSS) caused by ``malicious'' input show that handling input and output data is an underestimated challenge and major security concern in distributed applications. These weaknesses have been studied for numerous languages. However, this search is an endless  journey, since all programs which implement a parser or unparser are at risk.
+
+The parser, being the part of a program which reads input, is responsible for validating all preconditions the program expects the input to meet, i.e. to belong to the communication language and to create well-typed objects that represent the input within the program. While writing output, it is the unparser's job to ensure the output follows the structure defined by program code no matter what data the program processes. If the data is ``malicious'', unparsing it might result in a message that is interpreted differently by a parser then it was intended when it was unparsed.
+
+%\punchline{what makes input malicious? malis: not considered during development -> Unexpected computation}
+When parsing is performed correctly, ``malicious'' input is rejected by the parser as it is not expected by the program.
+While correct unparsing assures that no input may change the output of a program into a different message from the one defined by developers in source code. To enable an (un)parser to distinguish between valid and ``malicious'' massages, a definition of the language it accepts or respectively produces is required.
+This definition is a grammar, which at most might be deterministic context free \cite{bratus_input-processing_2014} to allow safe recognition of input.
+When developers do not define the input and output language of a program explicitly, ``malicious'' input is just unexpected by the developer and may drive the program into unwanted states like buffer overflows or make it produce irregular and unexpected output like SQLi and XSS.
+\todo{DONE
+relationship between
+pretty-printing and encoding is (and between parsing and
+decoding). Initially, I thought pretty-printing would be the same as
+encoding, but as I read on I realized in the proposed framework
+encoding was just a part of pretty-printing.  Then my question is why
+is encoding/decoding necessary? In my understanding, parsing goes from
+language A to language B (typically a tree representation for B) and
+pretty printing goes the other way around.  I don't see where
+encoding/decoding comes into play unless some intermediate layer is
+introduced. Please clearly define encoding and what problems it tries
+to solve.}
+Ensuring that programs create only expected output requires them to encode all data that is unexpected within the output language during unparsing.
+%Manually implementing this encoding has been shown to be highly error prone \cite{weinberger2011systematic}.
+%
+% such that it is decoded during parsing again.
+%that Preventing such attacks requires to encode all keywords of an output language 
+%contained within user supplied input during unparsing that break 
+%encoding of language keywords
+%
+%\punchline{parser and unparser development is hard (related work)}
+Although (un)parsers are ubiquitous -- just like data within programs is -- correctly implementing them without security vulnerabilities is a complex task.
+%they often do not receive the needed care in engineering which is required 
+To ease this task, % encapsulate the knowledge of how to translate a grammar into a (un)parser, 
+parsers are generated from grammars \cite{aho_compiler_2003,parr2013definitive} or parser combinators \cite{burge_parser_combinators_1975,hutton_parser-combinators_1992,fokker_parser-combinators_1995} are used.
+These solutions are very popular and well studied for textual programming languages.
+However, for binary protocols and file-formats there are only a few promising attempts like Nail \cite{bangert2014nail} or Hammer \cite{Hammer}.
+
+Pretty-printers, a variant of unparsers which focus on the layout of their textual output are derived from grammars \cite{vandenBrand_gen-unparser_1996} and vice versa \cite{Matsuda_FliPpr_2013}.
+However, these approaches do not consider attacker-controlled input to be unparsed and therefore fail to prevent injection attacks.
+Considering these cases requires the grammar to contain context specific encoding rules which define how arbitrary data can be encoded within the language \cite{hermerschmidt_encodingTable}.
+From this enriched grammar an unparser is generated, that applies (en)coding automatically during (un)parsing.
+%Variante B: kombiniertes Paper
+%However, generating an unparser from a grammar up to now requires to specify the encoding 
+However, an (un)parser generator that supports safe input and output handling from a plain context-free grammar has yet to be created. To provide developers with a comprehensive solution for secure input handling, we present MontiCore Hammer Coder\footnote{McHammerCoder is available on GitHub \url{https://github.com/McHammerCoder/McHammerCoder}} -- short McHammerCoder -- that closes this gap. This enables developers to generate a parser and unparser for any context-free grammar to safely process input and output of the defined language. To achieve this, McHammerCoder detects special cases within the language definition which can be used in a way not intended by the developer. Namely those cases which require encoding to be performed when data is unparsed. To provide an automated solution, an encoding is derived from the grammar that is automatically applied during (un)parsing.
+%\punchline{the approach aims to...}
+
+%%%%%%%%% overview %%%%%%%%% 
+The remainder of this paper is structured as follows:
+First related work is reviewed.
+In \autoref{sec:problem}, the challenges of generating a correct encoding are analyzed. Section~\ref{sec:mchc} introduces the aforementioned McHammerCoder parser and unparser generator.
+Our approach to automatically derive an encoding and apply it is presented in \autoref{sec:encoding}. %, including .
+This approach is then evaluated by taking the example of HTML and DNS in \autoref{sec:eval}. Finally an outlook and conclusion are drawn in \autoref{sec:conclusion}.
+
+
+\section{Related Work}\label{sec:relwork}
+The construction of parsers~\cite{aho_compiler_2003} and unparsers\cite{Hughes_pp_1995,Wadler_pp_1998,Vadim_unparsing-survey_2014} is a long studied area in computer science. When unparsers are used to produce easy to read output, they are also called pretty-printers. Both generating pretty-printers from context-free grammars~\cite{vandenBrand_gen-unparser_1996} and generating context-free grammars from pretty-printers~\cite{Matsuda_FliPpr_2013} is used to avoid redundancy and inconsistency~\cite{Rendel_define-parser-pp-together_2010}.
+
+Language-theoretic security (LangSec) builds upon this research to reason about security vulnerabilities caused by inadequate input handling \cite{sassaman_unrecognizable-protocols_2011,bratus_input-processing_2014} and output construction \cite{hermerschmidt_encodingTable}.
+According to the LangSec approach correct input handling starts by defining the input and output languages of a program.
+This definition can either be specified in a special grammar language or written within a programming language.
+The former is used by parser generators like MontiCore \cite{krahn2010monticore} or ANTLR \cite{parr2013definitive} for pure textual or Nail \cite{bangert2014nail} for binary languages, while the latter requires a parser combinator to provide an internal domain specific language (DSL) \cite{ghosh_internal-DSLs_2010} to describe the grammar. One such parser combinator is Hammer \cite{Hammer}, which also implements its own arena allocator to prevent known vulnerabilities - occuring while allocating memory for the parsed data or the parsers themselves. A concept that Nail picks up as well.
+
+Different concepts have been developed to protect against injection attacks.
+An early approach to solve the problem was the development of encoding tables for each language and the manual application of those tables by developers within program code.
+The OWASP project for example provides a table to prevent XSS \cite{owasp}.
+Applying encoding manually has been shown to be highly error prone \cite{weinberger2011systematic} and in the more recent years a way of automating the process has been sought. 
+
+\textit{Nail} \cite{bangert2014nail}, for example, offers a way of protecting against some types of injection attacks by restricting the expressiveness of the language. This is achieved by providing a custom interface between the syntax tree representation of the input and the user to prevent unwanted interactions.
+
+There are also multiple approaches that provide security against only a particular type of injection attacks such as \textit{Noxes} \cite{kirda2006noxes} and \textit{contrast-rO0} \cite{rO0}.
+Noxes provides a way of securing data by acting as a proxy which is able to filter out untrusted data which may contain an injection.
+\textit{Contrast-rO0} tackles the task of securing against Java deserialisation \cite{javades} attacks by providing a library automatically capable of detecting serialisable objects which pose a security threat.
+However, both approaches only provide a solution for a particular language and type of injection attack. % and thus are not in accordance with the LangSec approach. 
+MontiCoder \cite{hermerschmidt_encodingTable} provides an automated encoding to protect against injection attacks for all context-free languages.
+This however requires to define the encoding together with the grammar, which is still error prone, due to the complexity of the encoding the language designer has to create.
+
+%\punchline{Parser-Combinators}
+
+%One approach to ease the development of parsers are parser-combinators. These are libraries that provide a number of predefined basic parsers which for example allow parsing a single character. In addition they contain predefined combinators that allow for example to apply a sequence of such parsers and further combinators to achieve more complex parses.
+
+%\punchline{Hammer}
+%Hammer \cite{Hammer} is such a C-library. In addition to the above it also implements its own arena allocator to prevent known vulnerabilities, which usually occur while allocating memory for the parsed data or the parsers themselves.
+
+%\punchline{Parser-Generators}
+
+%There is already a variaty of existing parser-generators. Tools like MontiCore \cite{krahn2010monticore}, ANTLR \cite{parr2013definitive}, YACC \cite{johnson1975yacc} or Bison \cite{donnelly1992bison} are just a few examples of all the existing parser generators out there. Most parser generators however are focused on string based languages. Formats like XML or JavaScript can easily be formalized and used with these tools. The grammars are mostly context-free, although there are also context-sensitive solutions. There is also a number of binary approaches, like Nail \cite{bangert2014nail}, Hammer \cite{Hammer}, DataScript \cite{back2002datascript}, PacketTypes \cite{mccann2000packet} or Parsifal \cite{charniak1983parser} and many other tools.  Most of these offer good ideas for solutions to many problems, but they lack in some of the aspects.
+
+%Some theory to binary parser-generators is provided in a publication by William Underwood  \cite{underwood2012grammar} where he discusses  what kind of extensions a context-free grammar for textual formats might need in order to be able to describe the most commonly used binary file formats and protocols, categorized as chunk-based and directory-based formats.
+
+%\punchline{Nail}
+
+%Nail is a binary grammar based parser and unparser \cite{bangert2014nail}. As it is written in C, its grammar is generally more of a structure definition of the data that is read in. The user can directly specify the C-structures created from parsing the input. While Nail provides all the functionality to parse binary languages in a memory secure way, there are some aspects that are not solved perfectly. The main aspect here is that Nail requires "transformations" - hand-written code - which is executed by the parser at run-time. This is always error-prone, as language developers are often non-experts in programming.
+%Also encoding and decoding of output and input has to be implemented by the user separately in a second step on top of the parser implementation.
+
+%\punchline{Lars' paper}
+
+%Handling input reliably requires a robust parser that recognizes the input language of a program, which is defined in a grammar.
+%As noted before, deriving parsers and unparsers from a grammar is well established.
+
+% input and output grammar
+% grammars are commonly used to construct parsers
+% however, they should be used to generate unparsers as well
+
+
+%Since parsing and decoding must correspond to unparsing and encoding these operations aught to be derived from the language definition, to keep them in sync. \todo{cite unparser generation}
+%EXTEND: On-Stop-Solution
+%Therefore a on-stop-solution, that encoperates those solutions is required.
+
+
+\section{Formal Problem Definition} \label{sec:problem}
+%\punchline{one stop}
+%One stop solution - parsing and unparsing should be jointly integrated @Tobi
+%When developing a program, developers \textit{expect} program inputs to meet certain conditions.
+%These expectations need to be expressed, which results in a grammar that is used by a parser to whitelist those expected messages to be accepted and all others rejected.
+%Consequently, the rest of the program needs to react safely on all inputs accepted by the parser.
+%
+%While this information is known to be sufficient for constructing a parser, we found that it is also sufficient to construct an unparser that has a correct roundtripp
+
+\todo{We use the PT, to avoid the challenges: I didn't
+get how the pretty printer was derived. Is it because you use a Parse
+Tree, which preserves all parsing information so that going backward
+for pretty printing is possible? If so, then this deviates from common
+practices: an abstract syntax tree is typically used and information
+can be lost in an AST; in this setting, pretty printing would not be
+that trivial. When using parse trees, there are efficiency loss, which
+perhaps should be evaluated.}
+
+
+Handling Input requires to parse it -- namely create a parse tree (PT) from an input message -- and unparsing it, which creates the message from the PT.
+%add AST def here
+Following the LangSec philosophy \cite{sassaman_unrecognizable-protocols_2011,bratus_input-processing_2014,hermerschmidt_encodingTable,momot_langsec_secdev_2016} to prevent input based attacks (at least) the following conditions need to be fulfilled:
+\begin{enumerate}
+\item Valid input and output of a program is defined by a deterministic context-free grammar\footnote{Note that there are various syntaxes to notate a grammar, for example in a dedicated grammar language, within a programming language API, or configuration file syntax}.
+\item The parser rejects all input messages which are not part of the language defined by the grammar.
+\item The program uses only information from the input PT which is meant to be variable during program execution. This is an important design decision which corresponds to the intended program behavior.
+\item For all parse trees $t$ containing any kind of data the unparser ensures a correct parsing round-trip $parse(unparse(t)) = t$
+\end{enumerate}
+%To ensure a correct round-trip for any data fed into a parse tree $t$ parser and unparser need to ensure that
+%$parse(unparse(t)) = t$ \cite{hermerschmidt_encodingTable}.
+
+To solve the first three points, known techniques from parser construction are utilized to provide a solution for all deterministic context-free languages.
+The last point, however, requires some deeper analysis to provide a correct round-trip for all deterministic context-free languages.
+% Therefore additional information about the language is defined
+
+Since encoding during unparsing handles edge cases within the language definition to ensure a correct parsing round-trip, a systematic way of deriving all edge cases is required to create a correct encoding.
+%These occur when user input is given more meaning by the parser.
+The root cause of such edge cases is the misinterpretation of an unparsed message by a lexer while parsing it.
+This is caused by crafted input which is fed into the PT before unparsing it.
+Such input tricks the lexer into tokenizing the message differently then intended by the developer.
+This results in a different PT being created.
+In many cases, this changes the semantics of the transmitted message.
+ 
+%The whole process of manually generating and automatically applying an encoding has proven itself to be quite error prone, a way to automated the generation of the encoding has been sought. By automating the whole process a new level of better security could be reached while at the same time easing the task of language developers and of the language users. 
+
+To guarantee an automated correct parsing round-trip, a correct encoding has to be generated for each context-free language.
+Furthermore, this generated encoding must not create new injection opportunities.
+In order for an encoding to  be considered correct, it has to fulfill the following properties \cite{long2000most}:
+%todo continue reading here
+\begin{enumerate}
+	\label{ereq}
+	\item Uniquely decipherable - there has to be only one possibility to decode an encoded message. Therefore attention has to be paid not only to the process of encoding creation but also to the process of applying it during decoding and encoding.
+	
+	\item Instantaneous - no encoded word should appear as prefix or suffix of another encoded word. This makes it easier to decode and makes sure that (1) is not violated.
+	
+	\item Secure - all keywords that can be misinterpreted by the lexer when for a given token type must be encoded. This also includes pre- and postfixes of the keywords. 
+	
+\end{enumerate}
+%These requirements must be met, else no guarantee can be given that the produced encoding is a correct one and that it will not be prone to injections or cause errors while being parsed.
+
+
+% Why do we want to generate it automatically? (short+ref)
+% What are the benefits and potential problems with it?
+% What is the necessary information to generate an encoding?
+%generating unparser from grammar
+% output grammar
+% grammars are commonly used to construct parsers
+% however, they should be used to generate unparsers as well
+% Therefore additional information about the language is defined
+% \cite{hermerschmidt_encodingTable} introduced an encoding table to define the encoding of an malicious AST into data tokens
+% Although defining an encoding table manually is suitable for protocol engineers, who carefully craft protocols and their look.
+% However, injection vulnerabilities arise in every program's output
+% Therefore a technique which enables automatic derivation of context-specific encoding rules for grammars is needed.
+
+\section{McHammerCoder Parser}\label{sec:mchc}
+% =======================================================================
+%\punchline{What and How - Overview}
+As mentioned before our goal is a one-stop solution for developers when faced with reading or writing data to communicate securely with other programs.
+More precisely we aim to provide parsers and unparsers, for any protocol -- textual or binary.
+%which covers most of the common problems and security breaches.
+%Therefore it should support communication based on both binary and textual languages.
+
+The solution presented here is implemented in the parser generator McHammerCoder, which is available on GitHub.
+Similar to Nail, the idea is to use a parser combinator, in this case Hammer -- as a basis for the generated parser. The code of a parser based on such a library is very similar to the grammar definition, due to the fact that it consists of multiple predefined parsers -- each corresponding to a part of the grammar. This allows for direct translation form a grammar to an actual parser.
+
+\subsection{Grammar Design}
+The MontiCore grammar language \cite{krahn2010monticore} has been chosen as a basis for the McHammerCoder grammar language.
+It allows the description of context-free grammars for textual languages, aims for ease of use for language developers, and offers concepts for deriving the abstract syntax tree (AST) of the parsed data.
+The grammar is built up based on rules as shown in \autoref{lst:ExMCGrammar}.
+Each rule is defined through a regular expression which may contain non-terminals.
+These rules are divided into normal rules and token rules.
+
+Token rules describe actual sequences of characters, while normal rules combine sequences to more complex constructs. The only normal rule in this example is the start rule (line 2). In addition there are two token rules (line 3-4). The token \texttt{A} parses a variable number of \texttt{a}'s while token \texttt{B} parses a variable number of \texttt{b}'s. The normal rule \texttt{StartRule} defines that these two tokens have to occur in a particular order. The parsed input has to consist of at least one \texttt{A} followed by any number of \texttt{B} and \texttt{A} alternately. % Thus a valid input would for example be \texttt{aaabaaaaabbbbbaa} or just \texttt{a}.
+
+In addition the MontiCore grammar language has features such as inheritance known from object oriented languages to support developers in creating language families that reuse common parts of existing grammars.
+%This is used for the translation to the internal representation of the parsed data as well.
+
+\begin{lstlisting}[caption=MontiCore grammar example,label=lst:ExMCGrammar]
+grammar ExampleGrammar {
+	StartRule = A (B A)*;
+	token A = ('a')*;
+	token B = ('b')*;
+}
+\end{lstlisting} 
+
+At this point it is worth noting that binary languages are a superset of textual languages, as every character is represented as a value of a particular bit-length -- in other words every textual language is isomorphic to a binary language.
+The main difference is that binary languages use a larger set of symbols.
+Therefore in the following the MontiCore grammar language is extended by such symbols. Later in this section the translation from grammars to parse trees and ASTs is discussed.
+
+We start with integer values, both unsigned or signed, which have a length of %\vspace*{0.1in}
+8, 16, 32, or 64 bits specified as \texttt{uintX} -- where X denotes the length in bits and the leading "u" marks it as unsigned.
+Consequently \texttt{intX} denotes a signed integer of lenth X.
+
+Secondly bit sequences are added, where any length between 1 and 64 bits can be parsed %\vspace*{0.1in}
+as one symbol resulting in one long integer value together with an extra byte denoting how many bits are relevant in that value. This is basically the way Hammer treats parsed values of variable bit-lengths.
+These are specified as \texttt{ubitsX} -- where X can be any number between 1 and 64 and the "u" marks it as unsigned. And \texttt{bitsX} -- where X can be any number between 1 and 64.
+
+The grammar language also allows to specify either a value or a range of values that are valid for that symbol by adding this value in squared brackets or two values in square brackets separated by two dots.
+Thus an unsigned 8 bit integer that allows values from 5 to 20 is specified as \texttt{uint8[5 .. 20]}.
+
+In addition to the extended set of symbols, the grammar language is also extended by a new type of rules.
+These are called binary rules, denoted by the prefix \texttt{binary}, and are used to define sequences of binary values, which can be reinterpreted as one value or a string of characters -- allowing for the definition of tokens for different character encodings. Besides the \texttt{binary} prefix, the only difference of these rules to token rules is that they can only contain non-terminal symbols referring to other binary tokens as described before. %and symbols that were added through the previously mentioned extension.
+
+\begin{lstlisting}[caption=A Binary Rule in the McHammerCoder grammar,label=lst:binaryRule]
+grammar ExampleGrammar {
+	StartRule = Float;
+	binary Float = ubits1(1) ubits31 : float;
+}
+\end{lstlisting}
+
+\todo{@Peter: Missing ponctuation various times:}
+In the example in \autoref{lst:binaryRule} the binary rule \texttt{Float} (line 3) defines a binary token representing a sequence of two values. 
+The first one is a one bit unsigned value restricted to have the value \texttt{1} and the second one is a 31 bit unsigned value.
+Through the following \texttt{: float} this value will be reinterpreted as a Java floating point value which is, due to the rule, restricted to be negative. Besides the default type mapping the user may also define its own conversions here. However this is out of the scope of this work.
+
+%\punchline{Non-linear Parsing}
+
+%\punchline{Offsets}
+Notably many binary formats are build up in a non linear way.
+Therefore, a parser cannot parse such input from the beginning all the way to end.
+In these scenarios offset values within the parsed message are pointing to different positions on the input, where further data can be found.
+One example of this are ZIP files which consist of a header at the end of the file -- containing the list of files together with an offset value which denotes the location of the file inside the ZIP.
+This of course is a very uncommon behavior compared to textual languages. 
+
+To define an offset in the McHammerCoder grammar, %last three aspects of the above tuple are defined through 
+a linear function of the form $m\cdot x+b$ is used.
+Here $m$ is the scale of the offset, $x$ is the parsed value and $b$ shifts the offset by a static value. 
+The result is interpreted as number of bits.
+By choosing $m$ the offset is calculated as a multiple of $m$ bits depending on the parsed value of $x$.
+This offset can be applied to three different base positions.
+First the beginning of the parsed data, second the end of the parsed data and third the beginning of the parsed offset value.
+
+\begin{lstlisting}[caption=An Offset Rule in the McHammerCoder grammar,label=lst:offset]
+grammar ExampleGrammar {
+	StartRule = uint8#OffsetRule ;
+	binary Rule = uint8;
+	offset OffsetRule = Rule : -4*x-4;
+}
+\end{lstlisting}
+
+Listing~\ref{lst:offset} shows an example of an offset definition in a McHammerCoder grammar. 
+In line 2, the starting rule for the parser is defined. It only contains one uint8 value marked as an offset that is defined by the rule \texttt{OffsetRule} in line 4. That offset rule starts with the keyword \texttt{offset} to define that this offset is located relatively to either the start or the end of the input. A preceding \texttt{local} in front of the \texttt{offset} keyword would indicate that the origin of the offset is the parsed \texttt{uint8} value itself.
+The first part after the equals sign of the offset definition -- here \texttt{Rule} -- describes the rule that is applied at the offset position to continue parsing.
+%\texttt{Rule} (line 3) is defined to be another 8 bit unsigned integer.
+After the \texttt{:} follows the definition of the aforementioned linear function. The solution of that function is added to the base position resulting in the actual offset position. Whether the start or the end of the input is picked as base position depends on the sign of the linear function. If the sign is negative it is the end of the input.
+\todo{@Tobias: It seems like in Listing 3, m is -4.}
+In this example $m$ is 4 in the equation, which means that the uint8 value describes the offset as a multiple of four bits.
+The final $-4$ indicates, that the origin is also shifted 4 bits backwards from the end.
+This approach allows the use of offsets in a controlled fashion without the need for developers to write any code in a programming language to calculate the offset.
+
+%\punchline{Length-Data-Fields}
+
+Another aspect of parsing binary data are length-fields.
+Length-fields are values in the input that determine how often a specific value or sequence of values occur at a later position.
+This is slightly harder to embed into a parser generator, as it allows even more complex language definitions than offsets. 
+
+The easiest form of these length-fields determine the amount of data that follows right after this filed.
+In fact Hammer already implements a parser combinator that does exactly this.
+It applies one parser and applies another parser as often as the unsigned value, which was parsed by the first parser, tells it to.
+However, Hammer does not offer a real solution if the length-field and the data-field are not directly connected or if there are multiple data-fields for one length field.
+The main problem with this is, that the length and the data could even be in different rules.
+In such a situation it can be hard to avoid scenarios where the parser tries to parse data based on a length field that has not been parsed up to that point in time.
+%
+Nail for example solves this through arguments passed to the parsers of each structure-definition.
+The McHammerCoder parser generator picks up that idea in a slightly different way.
+Instead of passing arguments, length- and data-fields are named and can be matched by that name.
+To avoid ambiguity every length-field has to have a unique name and the data-fields for each length-field are only allowed to be subrules of rules that implement this length-field.
+If they are subrules of different rules these rules also have to fulfill this condition.
+Listing~\ref{lst:lengthData} shows an example of an 8 bit length field describing the length of a sequence of 16 bit integers.
+The \texttt{LengthName} in brackets is the name that connects the length and the data field.
+
+\begin{lstlisting}[caption=A length and data field in the McHammerCoder grammar,label=lst:lengthData]
+grammar ExampleGrammar {
+	StartRule = uint8.L{LengthName} uint16.D{LengthName};
+}
+\end{lstlisting}
+
+%\punchline{Byte Order}
+
+Besides non-linear binary formats there are also formats that use different byte orders.
+Usually values in Java for example are in little-endian.
+However, there are formats and scenarios where other byte orders are used.
+Thus in McHammerCoder it is possible to mark any binary value as little or big-endian, by adding \texttt{.LE} or \texttt{.BE} respectively on their right, or even change the default to either of them, by setting the corresponding option.
+If no specific endien is defined little-endian is used.
+
+\subsection{Deriving Parse Tree and Abstract Syntax Tree}
+Every parser has two tasks. First it rejects invalid input and second it transforms the input into an abstract syntax tree (AST) the program behind it can work with.
+% The same counts for the McHammerCoder parser generator.
+%
+MontiCore derives this internal AST representation directly from the grammar.
+However it simplifies the AST for ease of use and therefore drops all parsed data that is not of relevance to the application using the parser to read data.
+For example in textual languages white spaces which are just separators that make it easier to read are removed.
+However removing such data creates ambiguities when unparsing such an AST.
+%By using a parse tree it is possible to avoid dangerous ambiguities, which might occur when unparsing ASTs - requiring to reintroduce such removed values.
+Therefore McHammerCoder uses a parse tree (PT) to avoid to reintroduce such removed values during unparsing.
+
+The aforementioned grammar directly translates into the resulting PT.
+The tree consists of a root note -- containing the actual parse result as well as the parse results of the applied subparsers at any offset location.
+Each token forms a terminal node or leaf in the parse tree.
+The same holds for binary tokens.
+Normal rules form inner nodes, which contain sequences of other inner nodes or (binary) tokens.
+
+%\lhnote{Koennte man streichen. Was ein ParseTree ist weiss der Leser: @Lars Können wir von mir aus streichen. Das überlasse ich dir :)}
+%\begin{figure}
+%\begin{center}
+%\includegraphics[scale=0.36]{img/parsetree}
+%\caption{Example Parse Tree \label{fig:parsetree}}
+%\end{center}
+%\end{figure}
+%
+%As an example \autoref{fig:parsetree} shows the resulting PT for the input \texttt{aaabaabba} to the parser generated from the grammar previously presented in \autoref{lst:ExMCGrammar}.
+%One can see that the \texttt{StartRule} forms an inner node in the tree - having five child-nodes. All its child-nodes are tokens - containing parts of the parsed input. These tokens are derived from the token rules in the grammar and thus only contain the parts of the input that has successfully been parsed according to the different token rules. Therefore each token in the tree has a token-type, which maps the generated tokens back to the rules they are based on. It is also worth noting that the order of nodes in the tree is important - as it is reflecting the order in which they occurred in the input. In this case the tokens occur in the order \texttt{ABABA} - listed by their types. Also the \texttt{StartRule}-node is a child of the \texttt{FileNode} - always forming the root of the tree and containing the initial parse result and all parse results at any offset-location that was found as child-nodes.
+
+
+%Listing~\ref{lst:grammarRecursion} shows an example grammar consisting of one rule the \texttt{StartRule} (line 2) and one token named \texttt{A} (line 3). The grammar basically describes the language consisting of an number of \texttt{a}'s in a sequence. The resulting PT for the valid input \texttt{aaabaabba} is shown in figure XXXXX. One can see that the \texttt{StartRule} forms an inner node in the tree only having one child, the token \texttt{A}. The token's child then simply is a terminal node containing the sequence \texttt{aaa}. It is worth noticing that the \texttt{StartRule} node is a child of the \texttt{root} node. This node always forms the root of the tree and contains the initial parse result and all parse results at any offset-location that was found. Length-data fields directly translate into either content of tokens or sequences of children on inner nodes.
+%\todo{types?}
+%As the MontiCore grammar was designed for the construction of ASTs, the language developer can also specify which values are important to the system behind the parser, by adding square brackets around any non-terminal or symbol in a normal rule and specifying a name or identifier for it. Then the corresponding AST-node for that rule only contains such parts of the tree and hides / drops everything else. Using a simple builder pattern it is thinkable that by not allowing multiple occurrences of the same name or id in one rule reintroducing removed values by a simple routine. 
+
+\section{Deriving Encoding and Decoding}\label{sec:encoding}
+As previously mentioned, unparsing without correct encoding leads to an incorrect parsing round-rip and injection vulnerabilities.
+The cause of this is the interpretation of symbols or groups of symbols that are treated as keywords in some contexts of the language.
+Those keywords influence the way the parser reads a message and constructs the PT.
+To ensure the correct interpretation by the parser, encoding is used during unparsing.
+
+To automate the generation of an encoding for a language the first step is to extract some information from the McHammerCoder grammar.
+First, a list of strings that need encoding has to be extracted.
+This list is composed of keywords and all possible keyword parts they can be divided into.
+%\todo{daran anpassen:}
+%This occurs because the encoding that is generated for a token type has to be of the same type as the token.
+%In other words the generated encoding should never change the type of the token that it is applied to. 
+It is important to encode all keyword parts, because if neighbouring PT nodes contain one part of a keyword each, the unparsed message contains a keyword originated from data.
+Therefore parsing this message leads to a different PT then the one that was used for unparsing.
+Let us assume the following three nodes form the leaf nodes of a PT before unparsing: \texttt{foo<}, \texttt{p>bar<} and \texttt{/p>fuu} and that both \texttt{<p>} and \texttt{</p>} are keywords of the language. Then after unparsing the resulting message is \texttt{foo<p>bar</p>fuu}. When parsing this message it is divided into different tokens, because both keywords are found in the input.
+Therefore keywords have to be divided into sub-parts and those parts have to be encoded as well.
+%To clarify what is meant by keyword parts consider the keyword \texttt{</p>}, it can be divided into \texttt{<,</ , </p, >, p>, /p>}. Only \texttt{p} and \texttt{/} are not valid divisions because they are not at the beginning or the end of the keyword.
+
+A second information that has to be extracted from the grammar are the \textit{free symbols}.
+Those are symbols that are defined in a token and thus are allowed within that token. For example in the token:
+%\begin{center}
+\texttt{\textbf{token} Id = ('a'..'z')+; } 
+%\end{center} 
+the free symbols consist of the lower case English alphabet.
+Free symbols are used to represent encoded data within a valid message. The set of free symbols holds all possible symbols that are available for use in the whole language. 
+Since the free symbols are extracted directly from the grammar there is no differentiation between symbols available for one token type or the other.
+To gain this differentiation the set of \textit{usable symbols} is created from the free symbols.
+This set is composed from the free symbols that are available for a given token type.
+Furthermore, any free symbol that matches a keyword or keyword part is excluded from the usable symbol list, e.g. if \texttt{a} is both a free symbol and a keyword it is excluded from the usable symbols list of all token types where \texttt{a} is a keyword.
+
+\begin{figure} %[H]
+\begin{lstlisting}[label=listing:htmlred, caption=A reduced HTML grammar]
+grammar HTMLRed {    
+     token Id =  ( 'a'..'z' | 'A'..'Z' )+;
+
+     P = "<p>"  (Alternatives)* "</p>";
+ 
+     Alternatives  = P | B | I | Id;
+     B = "<b>" Id "</b>";
+     I = "<i>" Id "</i>";     
+}
+\end{lstlisting}
+\end{figure}
+%\vspace{0.5cm}
+%This grammar represents a subset of the HTML language hence it is called \textit{HTMLRed}.
+%The HTMLRed language is used as an example throughout this paper.
+To illustrate what exactly is extracted from a grammar, consider the reduced HTML grammar in \autoref{listing:htmlred}.
+The language contains six keywords which are extracted from the grammar. 
+The free symbols are composed of the English alphabet with upper and lower case letters based on the definition of the token \texttt{Id}.
+In this example the usable symbols coincide with the free symbols, because there is only one token type and no single letter is a keyword.
+Now that the keywords and the usable symbols have been extracted, the encoding can be created.
+
+%\\\punchline{Combining everything into an encoding}
+\subsection{Generating an Encoding}
+For generating an encoding, first two symbols from the usable symbols are chosen. 
+They represent a binary number -- the first is used as \textit{escape symbol} and every keyword is assigned a number and this number is encoded using a binary encoding schema.
+The first chosen escape symbol is used to start every encoding.
+Therefore it is used as a marker that announces to anyone reading the encoded message that after this symbol something encoded must follow.
+To make sure that requirements from section ~\ref{ereq} are met, %the encoding is generated by taking the escape symbol and placing it on the left most position and then
+every keyword is assigned an unique number. Thus, the encoded message following the escape symbol is treated as a number, representing a keyword. Since the escape symbol carries additional meaning for the encoding and decoding process every occurrence of it has to be encoded as well.
+
+
+%\vspace{0.5cm}
+%\begin{figure} %[H]
+%\begin{lstlisting}[label=listing:startsymbol, caption=Example Encoding]
+%A = ABABABA
+%/i> = ABBBBBB
+%<b = ABBBBBA
+%<p> = ABBBBAB
+%\end{lstlisting}
+%\end{figure}
+%\vspace{0.5cm}
+Consider the generated encoding table in \autoref{listing:htmlredencoding}.
+The escape symbol is \texttt{A} and therefore every \texttt{A} is encoded into \texttt{ABABABA}.
+As second usable symbol \texttt{B} has been chosen.
+Those symbols represent a binary zero and a binary one.
+In this example \texttt{ABBBBBB} is interpreted as \texttt{000000}.
+The leading \texttt{A} is removed since it only denotes that this is in fact an encoded message. \texttt{ABABABA} is interpreted as \texttt{010101} or \texttt{21} in decimal.
+
+It is important to note that a specific encoding has to be created per token type, because it is seldom the case that one encoding is able to fit in all possible contexts of a given language without causing vulnerabilities.
+Thus multiple encodings are generated -- one encoding per token type. 
+To ensure that the encoding does not change the token type when applying it, the type of each generated encoding is checked to verify that it still corresponds to the type of the token that it is meant for.
+If it changes the token type, the encoding is discarded and another pair of escape symbol and usable symbol is chosen.
+This is repeated until there are no more possible pairs of usable symbols to choose from.
+If no pair results in a valid encoding, then no auto-generated encoding following our encoding schema was found.
+For those languages we experimented with, our algorithm was able to find a valid encoding as long as there were at least two usable symbols.
+
+%After all the information necessary for generating an encoding is extracted, it can  be easily created.
+Consider the generated encoding in \autoref{listing:htmlredencoding} for the reduced HTML grammar. 
+%\vspace{0.5cm}
+\begin{figure} %[H]
+\begin{lstlisting}[label=listing:htmlredencoding, caption=Encoding for the reduced HTML grammar.]
+A = ABABABA
+/i> = ABBBBBB
+<b = ABBBBBA
+<p> = ABBBBAB
+/b> = ABBBBAA
+<i = ABBBABB
+p> = ABBBABA
+</b = ABBBAAB
+<i> = ABBBAAA
+</ = ABBABBB
+</b> = ABBABBA
+</i> = ABBABAB
+<p = ABBABAA
+i> = ABBAABB
+</i = ABBAABA
+<b> = ABBAAAB
+< = ABBAAAA
+b> = ABABBBB
+</p = ABABBBA
+</p> = ABABBAB
+/p> = ABABBAA
+> = ABABABB
+\end{lstlisting}
+\end{figure} 
+This encoding uses \texttt{A} as the escape symbol of the encoding and has encoded every keyword and keyword part to a seven letter character sequence.
+Since the encoding covers all keywords and keyword parts it can be considered a secure encoding for the language.
+%EXTEND: language composition bares chalenges in encoding \cite{hermerschmidt_encodingTable}
+% as long as no other keywords are introduced through interaction with another language.
+%For every additional language an encoding would have to be generated and applied.
+%\\\punchline{Checker}
+
+Now that the encoding has been generated the question remains how and where to apply it.
+Simply applying it to all nodes of a PT before unparsing it to a message would remove all keywords from the message and hence render the message invalid.
+%loose meaning and in the worst case would no longer be a valid instance of the language.
+Thus not all contents of a PT must be encoded.
+This is the case because there are keywords that are used by the developer and are not an injection made by the attacker.
+%A method has to be created that is able to find the exact parts of the message that need to be encoded. After encoding these parts, output should not result in an invalid instance of the language. Parts that should be encoded are parts where user input can be placed in the output. It would, however, be highly impractical and error prone if the developer has to specify the correct encoding at all the places where user input can be made. That is why an automated way has to be used. The implementation of this automated way is what the checker does.
+
+Within a parse tree every node is associated with a token type, namely the one that is used to parse that node.
+Whenever all nodes comply to their token type and neighboring nodes do not contain keyword parts, unparsing such a PT does not require encoding to achieve a correct parsing round-trip.
+Since keywords are separate tokens with their own type, they can not be found in a non-keyword node within a PT that does not need any encoding.
+%do not it is impossible to find a keyword as part of a non-keyword type token.
+Therefore only if a node does not match it's token type, i.e. results in two nodes when parsed, or contains the escape symbol, or a keyword part, the content needs to be encoded to make the content match the node's type again.
+
+To search for such nodes in a PT, we use the \textit{checker}.
+It checks these properties for every node in a PT.
+Thereby it detects injections that need to be encoded.
+%In addition it reports whether the escape symbol or a keyword part is present in the token.
+For all nodes the checker reports, the encoding is applied.
+
+The checker approach is especially useful in parser combinators, since it is possible to apply only the combined parser for that particular part of the language to a given node. Whereas when using state machine based parsers, parsing only a part of an input would require to introduce an accepting state to the state machine, leading to a more complex and error prone solution.
+%As mentioned previously this escape symbol and the keyword parts always need to be encoded, else the decoding cannot work reliably.
+
+%\\\punchline{Encoding and Decoding}
+\subsection{Applying Encoding and Decoding}
+The generated encoding is applied on a PT during unparsing through the encoder and applied in reverse by the decoder during the parsing of a message.
+%The encoder and decoder are used on the PT resulting from a given message to encode and respectively decode it.
+%Both encoder and decoder go through the PT through a visitor which visits every token in the PT and either encodes or decodes that token if necessary.
+The encoder is only called after the checker has found a token that needs to be encoded, whereas the decoder is called on every token.
+This is the case because the decoder cannot know which token has been encoded and which has not been encoded.
+This naturally leads to the fact that the escape symbol must not appear in the message prior to decoding.
+If it does, it makes the decoder create a keyword (part) that was not in the PT before unparsing.
+To further clarify this, consider the message \texttt{<p>ABBBBAB</p>} of the reduced HTML language.
+The parser creates three nodes within a PT from it, one for each keyword and one containing \texttt{ABBBBAB}.
+If the escape symbol \texttt{A} has not been encoded during unparsing, \texttt{ABBBBAB} is decoded to \texttt{<p>} leading to an injection caused by the decoder itself.
+If however, the escape symbol is encoded, the data \texttt{ABBBBAB} within the sending PT is encoded to \texttt{ABABABABBBBABABABAB} in the message.
+Thus after decoding it, results again in \texttt{ABBBBAB}.
+
+For the whole decoding process it is of the utmost importance that the encoding is performed only once per message.
+Otherwise the decoder cannot know how often it has to decode a given message.
+This would disrupt the bijectivity of the encoding, making it not uniquely decodable.
+Reconsidering the PT containing \texttt{<p>ABBBBAB</p>} before unparsing.
+%Consider the following example based on the reduced HTML example.
+%Let us assume the input is \texttt{<p>ABBBBAB</p>} which is encoded to \texttt{<p>ABABABABBBBABABABAB<p>} and the decoder decodes as often as it can.
+Assuming the decoder decodes the message as often as it finds a string that matches an encoding.
+Then the input would be decoded to \texttt{<p><p></p>} which is obviously not the original content of the PT.
+%On the other hand the message cannot be encoded as often as possible, because the escape symbol can always be encoded and thus the encoding would never end.
+Therefore encoding and decoding have to be applied exactly one.
+
+Another pitfall is the ordering in which single encoding rules are applied during encoding.
+Simply replacing all occurrences of an encoded keyword, i.e. the escape symbol, with it's decoded equivalent might result in double replacements and hence altering of the original message.
+Therefore the encoding rules have to be applied in the same order when encoding and decoding a PT node.
+For decoding, McHammerCoder uses a sliding window of the size of the encoding and moves it over the content to be decoded.
+Whenever a decoding rule matches the contend in the sliding window it is applied and the window moves after that part of the message which has just been decoded.
+If nothing can be decoded within the window it is moved one character ahead.
+This is repeated until it reaches the end of the PT node.
+To clarify this, consider a PT node containing the input \texttt{<b>AA} before unparsing and encoding.
+Encoding it results in \texttt{ABBBBBAABABABBABABABAABABABA}.
+When decoding it without a sliding window it might be incorrectly decoded to \texttt{<bAB/p>}.
+%This is obviously not equivalent to the original input.
+Therefore using a sliding window for decoding is mandatory.
+
+
+To sum up the encoding and decoding process in conjunction with the checker approach consider \autoref{fig:activity}.
+\begin{figure}
+\begin{center}
+\includegraphics[scale=0.5]{img/activity}
+\caption{Activity Diagram for encoding a PT node \label{fig:activity}}
+\end{center}
+\end{figure}
+When encoding a PT node the first step is done by the checker -- it takes the node and analyses its contents.
+If this node does not contain the escape symbol or any keyword (parts) and is of the type which is expected then it is left as is and the encoding process for this node is complete.
+In case this node needs to be encoded a check is performed to verify that an encoding has been generated beforehand for this token type.
+If no such encoding was generated the unparsing is aborted to prevent an injection.
+Otherwise, the encoder processes the node and does the actual encoding.
+The encoder always encodes the escape symbol first.
+Afterwards it encodes the keywords and keyword parts.
+After the whole node's content has been encoded a check is made to make sure that the token type has not been changed by the encoding.
+A change in the token type results in the abortion of the unparsing process.
+In the end only a fully encoded PT is unparsed.
+%If not, the tokens content's are updated in the PT thus making the PT secure for the whole unparsing and parsing process.
+%\\\punchline{SISO}
+
+Up to now we considered only encoding of symbols that lead to an invalid parsing round-trip.
+However, McHammerCoder also supports generating an encoding for characters that are not used by the language at all.
+This feature is called stuff-in stuff-out (SiSo) and can be activated or deactivated.
+% Not defined characters are the characters that have not been explicitly disallowed or allowed.
+%:
+%%\vspace{0.5cm}
+%\begin{center}
+%\begin{lstlisting}[label=listing:eg3, caption = Example for Stuff in Stuff out]
+%grammar ExampleGrammar3{
+%	E = Id ;
+%	token Id = ('a'..'z')+; 
+%}
+%\end{lstlisting}
+%\end{center}
+%\vspace{0.5cm}
+Considering the token \texttt{Id} from the reduced HTML example in \autoref{listing:htmlred} that allows all characters from \texttt{a} to \texttt{z}.
+Hence inserting \texttt{A} or \texttt{!} into the respective PT node would simply make the receiving parser reject that unparsed message.
+To support a correct parsing round-trip even for those cases, an encoding is generated for all symbols that are not used within the grammar.
+%SISO uses the characters from \texttt{a} to \texttt{z} to create an encoding that is able to represent all other characters that are available. The available characters consist of every character that can be represented by a Java \texttt{char} all characters up to four bytes in length. This includes the whole UTF8 character set for example. An encoding is generated for each token type that, if possible, is able to encode all other not defined characters and represent them in this token without changing its type. Thus the parsing-unparsing roundtrip is not affected.
+
+Providing such a reliable parsing round-trip makes transmission of arbitrary data safe, even if the language definition does not consider such data at all.
+However, after parsing and decoding such data the PT contains data that is not defined within the grammar and therefore probably unexpected by the developer of the receiving program.
+This is contradictory to the LangSec approach of rejecting unexpected input within the parser and puts the burden of correctly handling such data again onto the developer.
+
+
+
+%This feature can be especially useful to the user if he wants to use characters that are not defined by the grammar and he cannot change the grammar or if the application has to function properly even if the input is not specifically defined by the grammar. The grammar might not be alterable for various reasons, one such reason could be that the grammar is used in multiple software systems and the user does not have access to all of them. By using SISO he can still use the characters that he wants while being fully protected from injection attacks. Thus an already existing protocol can be used to securely pass data without having to change the definition of the protocol.
+%TODO add lexer as main culprit @Peter
+
+\section{Evaluation}
+\todo{ - performance metrics should be added. what is the overhead cost in processing time of your approach as compared to an initial implementation? When developers think about implementing e.g., Type-1 XSS filter in a browser, performance is a KEY factor.}
+\label{sec:eval}
+\status{done}
+%\punchline{describe setup=webapp architecture}
+Since proving correctness of the generated (un)parser is out of scope of this work, we demonstrate the applicability and quality of the approach by implementing a language that uses all features of the (un)parser generator and testing the generated code with fuzzing.
+%We first focus on the parser and afterwards on the unparser.
+
+%\punchline{Stability}
+First, to test the binary features a grammar for DNS requests was implemented and the PeachFuzzer \cite{eddington2011peach} was used to create inputs for parsing.
+To enable Peach to generate DNS packets, a Peach Pit file was constructed.
+%While it can be used to generate random data, it can also be fed with a simple XML containing information on the structure of the language the parser should parse.
+Fuzzing the parser with 60.000 valid and invalid DNS requests generated by Peach resulted in no crashes or hangs.
+
+%\punchline{Correctness}
+In addition a correctness evaluation was made to find if the parser rejects all invalid input and accepts all valid input.
+%comparing it's accepted language to an existing implementation.
+Therefore Bind DNS server was selected as a mature reference implementation of a DNS server %Thus if Bind accepts a package, chances are high that the package is valid.
+and it's behaviour was compared to our generated parser.
+Based on the DNS response from Bind we determined if it's parser accepted the input.
+From the DNS requests generated by Peach approximately 20\% were recognized as valid by Bind.
+For all generated DNS requests it was found that the generated parser accepts, respectively rejects, it if and only if Bind accepts, respectively rejects, it.
+Therefore for this test setup the generated parser recognizes the defined language.
+
+
+\todo{Make clear, that we implemented our own HTML and JavaScript grammar and parser and did not use one of a browser (to be reliable in vulnerability detection we need to process the Parse Tree of the browser. Please make it explicit in terms of engineering what is the PT of HTML, and the PT of JavaScript, and provide additional details on how you extracted this information from the browser, and which browser you used.)}
+\todo{We do not solve parser differentials( -  what about the large-scale applicability of your approach? For it to work it needs to be implemented on client and server side. (e.g. in the case of XSS, we would need to implement it in the web application and in the browser, which does not seem practical, various XSS vulnerabilities are browser specific.). For new clients for a new protocol, I however see great potential)}
+%\punchline{Unparser Eval}
+In order to evaluate the generated unparser and the derived encoding, a web application that uses input within different contexts of the produced HTML and JavaScript output was implemented. %by us
+By choosing those languages, web application scanners can be levered as language specific fuzzers to identify errors in the encoding or unparsing process.
+
+To follow the described approach, a grammar for those languages was implemented, the unparser and encoding were generated from it, and this unparser was used to create the application's output.
+%This web application uses templates to handle input within XML, HTML, and JavaScript output. 
+\autoref{fig:eval} shows the processing steps within the evaluation setup, that work as follows:
+\begin{figure} %[H]
+	\begin{center}
+		\includegraphics[scale=.35]{img/eval}
+		\caption{Evaluation Setup \label{fig:eval}}
+	\end{center}
+\end{figure}
+\todo{where does "the Template" come from in Fig. 2. E.g. if considering a social netwok login page, what is the "template"?}
+First the template of the website is parsed to create an initial PT. Then the input provided by the web application scanner is inserted to it. This PT is then encoded and unparsed. Subsequently the resulting HTML document is sent to the web application scanner, that tries to determine if an injection attack was successful.
+Additionally, the document is parsed by the generated parser.
+After automated decoding the resulting PT is compared with the PT used to generate the website.
+If a difference is found between both PTs the unparser failed to encode some input and this is considered as an injection vulnerability.
+
+%\punchline{describe tests}
+ZAP \cite{zap}, IBM AppScan \cite{ibm}, and FuzzDB \cite{fuzzdb} were used as web application scanners.
+ZAP's attacks were set on insane strength, the threshold for reporting vulnerabilities was set to low, however, it did not report any injections.
+%The only problem that ZAP discovered are missing headers that help protect against XSS \cite{headers}. This discovery, however, is a false positive since the lack of headers is not the responsibility of McHammerCoder. They should be included by the web application developer to increase the security of the application.
+IBM AppScan %performed similar to ZAP. It 
+%also found the missing headers %and reported them as a possible problem. AppScan also
+%but in addition
+reported an \textit{Microsoft Windows MHTML Cross-Site Scripting}.
+%This injection is displayed in \autoref{listing:inj}
+%\vspace{0.5cm}
+%\begin{lstlisting}[label=listing:inj, caption=False Positive Injection]
+%<div id="content">Content-Type: multipart/related; boundary=_AppScan
+%--_AppScan
+%Content-Location:foo
+%Content-Transfer-Encoding:base64
+%PGh0bWw+PHNjcmlwdD5hbGVydCgiWFNTIik8L3NjcmlwdD48L2h0bWw+
+%</div>
+%\end{lstlisting}
+%\vspace{0.5cm}
+Since the web application is using XHTML, the browser will not interpret it as MHTML, which makes this finding a false positive. %\lhnote{Ist das richtig?}
+%This is another false positive since the web application on which the test was run does not protect against \textit{Microsoft Windows MHTML Cross-Site Scripting}. To do this MHTML would have to be included to the languages that are encoded. 
+
+Lastly by using ZAP's fuzzer and the FuzzDB all attack strings from the sections: \textit{XSS, XML} and \textit{format-strings} were fed into the application.
+All attacks from the first two sections were prevented by correctly encoding them.
+\todo{ - page before the last one: what is SiSo? please make this explicit.}
+Several attacks of the \textit{format-strings} section were not encoded but still detected by the unparser, with SiSo mode disabled.
+%\lhnote{Macht non-SISO mode Sinn?}
+%notify the user that there is something wrong and reset the web application. This prevents an injection while the input is lost. If instead of the normal encoding mode SISO is used these cases of invalid input are correctly encoded and decoded. 
+When enabling SiSo mode those format-strings were processed and encoded.
+
+Comparison of the unparsed PT with the one created from parsing the unparsed message did not show any differences for any of the performed injection attempts.
+%All attack string encoded by the unparser were decoded without any change in the PT's structure.
+%that were in scope of the web application - XML and HTML, were prevented by McHammerCoder.
+%In the cases where the input did not fit the specifications of the language, an error message was displayed and the web application reset. \lhnote{Wiederholung}
+Thus McHammerCoder successfully prevented all tested injections.
+%\todo{@Lars das müssen wir nochmal testen, ob es gefixed ist:}There was, however, an unexpected segmentation fault that occurred during one of the tests. This error is attributed to some kind of internal error of Hammer, since it can only occur from a memory access violation, which is impossible in Java. Thus it is not regarded as a failure on the part of McHammerCoder.
+
+\section{Conclusion} \label{sec:conclusion}
+%Kontext und Problem, welches in diesem kontext durch dieses paper gelöst wird+ methodik=
+Preventing input based attacks requires developers to implement strict parsers and unparsers, that ensure a correct parsing round-trip from parse tree serialized data and back.
+Ad-Hoc solutions to this problem often contain security vulnerabilities like arbitrary code execution and injections. %or are tied to a specific languages.
+%Just like cryptography is not the single solution to security, McHammerCoder can not prevent design flaws in the grammar or processing logic running upon the parse tree.
+Solving these vulnerabilities for all deterministic context-free languages requires an approach where the (un)parser implementation is reused, i.e. derived from a grammar.
+This makes language and encoding definition within the grammar vital for preventing input-based vulnerabilities.
+
+%probleme aufteilen
+To free language developers from considering all cases where input needs to be encoded and hence ease language definition, an approach that derives an encoding from a given context-free grammar was presented.
+%TODO extend problem (binary grammar)
+By incorporating this encoding with the binary-capable Hammer parser, a comprehensive solution for a correct parsing round-trip is provided.
+%wie wurden die probleme gelöst, was sind die ergebnisse
+This was achieved by extending the MontiCore grammar language with binary elements and generating a Hammer parser, and an unparser from it.
+%TODO extend?
+%
+The generated (un)parser along with the encoder and decoder were evaluated by implementing a binary DNS query language and a HTML and JavaScript example language.
+Using PeachFuzzer, IBM AppScan, and ZAP the generated (un)parsers were assessed for vulnerabilities and neither an arbitrary code execution nor an injection was found.
+%wrap up=exakte ergebnisse benefit+contribution
+The presented McHammerCoder approach allows developers to prevent input-based attacks on all context-free (binary) languages by simply defining the language in a grammar.
+
+%future work
+%Fehler beim lesen und schreiben von Dokumenten entfernen. Es bleibt das Problem, dass die Business Logic Schwachstellen aufweist, wenn sie auf Eingaben reagiert.
+Clearly it is assumed that developers feel comfortable with defining communication protocols using grammars.
+Considering other representations of grammars that developers are more familiar with might improve acceptance and use of the proposed approach.
+From an offensive security perspective, extracting the grammar from an already implemented (un)parser might be interesting to identify edge cases that might turn out to be security vulnerabilities.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\bibliographystyle{IEEEtran}
+\bibliography{paper}
+\end{document}

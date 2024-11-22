@@ -75,7 +75,7 @@
 
 \begin{document}
 
-\title{Eliminating Input-Based Attacks by Deriving Automated Encoders and Decoders from Context-free Grammars}
+\title{Input Safe Languages: Unparsing as first class citizen of programming languages}
 
 \author{\IEEEauthorblockN{
 Lars Hermerschmidt\textsuperscript{1} and
@@ -138,7 +138,7 @@ remove string Concat
 
 \section{Related Work}\label{sec:relwork}
 \punchline{Lars bashing, how could you assume that developers will use your tool/library}
-
+\todo{trusted types anschauen}
 
 \section{Formal Problem Definition} \label{sec:problem}
 
@@ -156,6 +156,11 @@ definition injection
 
 language concepts of a programming language result in properties of running code
 Example: Memory Safe Language
+
+\punchline{memory safety is not the solution}
+
+Memory safe languages only solve one part of the input problem. A memory safe parser can't protect from injections.
+Parsers are still a problem but memory safe languages ​​have fixed many of the bad effects.
 
 \punchline{define input safe language}
 (string) concat free language -> code without infections
@@ -194,8 +199,24 @@ unparse_p1 != unparse_p2, since developers create these unparsers
 
 \section{Noncat}\label{sec:mchc}
 
+Ansatz: template engine
+Wir haben das was echt schlechtes gebaut was Devs nicht annehmen.
+Loesungsansatz fuer regulaere output Sprache.
+Ergebnis: App Devs haben das Problem nciht da sie ein Framework nutzen was parser/unparser mitbringt ... aber bauchen csv in json ein :D
+Learning: Devs merken nicht wenn sie eine Sprache selber definieren
+Learning: Devs erwarten dass die Sprache oder das Framework das Problem fuer sie loest (aehnich wie bei memory safety)
+
 
 \section{Evaluation}
+
+\todo{Wie gross ist der Bias weil wir die template engine als library und nicht als eigene sprache implementiert haben?}
+\todo{brauchen wir einen zweiten ansatz mit einer DSL?}
+Wie evaluiert man bessere Loesungen?
+Wie koennen Leute messen ob sie mit ihrer Loesung auf dem Richtigen weg sind?
+Interviews machen und Fragen veroeffentilchen.
+- Dev Stakeholder Akzeptanz
+- Business Stakeholder (wie viel Geld wuerdest du ausgeben 80\% deiner vulnerabilities loszuwerden? Welchen Teil des Security Budget wird frei?)
+
 \section{Conclusion} \label{sec:conclusion}
 
 
